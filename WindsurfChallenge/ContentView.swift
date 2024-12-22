@@ -289,29 +289,45 @@ struct NoteDetailView: View {
     }
     
     var body: some View {
-        VStack {
-            TextField("Title", text: $title)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding()
-                .onChange(of: title) { newValue in
-                    if newValue != note.title {
-                        print("标题更新 - 从: \(note.title ?? "") 到: \(newValue)")
-                        note.title = newValue
-                        note.updatedAt = Date()
-                        saveContext()
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // 日期显示移到最上方
+                if let date = note.updatedAt {
+                    Text(formatDate(date))
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                        .padding(.bottom, 8)
                 }
-            
-            TextEditor(text: $content)
-                .padding()
-                .onChange(of: content) { newValue in
-                    if newValue != note.content {
-                        print("内容更新 - 笔记: \(note.title ?? "")")
-                        note.content = newValue
-                        note.updatedAt = Date()
-                        saveContext()
-                    }
-                }
+                
+                // 标题
+                TextField("标题", text: $title)
+                    .font(.system(size: 20, weight: .bold))
+                    .textFieldStyle(.plain)
+                    .padding(.bottom, 16)
+                
+                // 内容
+                TextEditor(text: $content)
+                    .font(.system(size: 14))
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                    .scrollContentBackground(.hidden)
+            }
+            .padding(20)
+        }
+        .onChange(of: title) { newValue in
+            if newValue != note.title {
+                print("标题更新 - 从: \(note.title ?? "") 到: \(newValue)")
+                note.title = newValue
+                note.updatedAt = Date()
+                saveContext()
+            }
+        }
+        .onChange(of: content) { newValue in
+            if newValue != note.content {
+                print("内容更新 - 笔记: \(note.title ?? "")")
+                note.content = newValue
+                note.updatedAt = Date()
+                saveContext()
+            }
         }
         .onChange(of: note) { newNote in
             if newNote != note {
@@ -328,13 +344,43 @@ struct NoteDetailView: View {
         }
     }
     
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy年MM月dd日 HH:mm"
+        return formatter.string(from: date)
+    }
+    
     private func saveContext() {
         do {
             try viewContext.save()
         } catch {
-            let nsError = error as NSError
-            print("保存笔记失败: \(nsError), \(nsError.userInfo)")
+            print("保存笔记失败: \(error.localizedDescription)")
         }
+    }
+}
+
+// 反思按钮视图
+struct ReflectionButton: View {
+    let isGenerating: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                if isGenerating {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(0.8)
+                }
+                Text("反思")
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.green)
+            .cornerRadius(6)
+        }
+        .disabled(isGenerating)
     }
 }
 
