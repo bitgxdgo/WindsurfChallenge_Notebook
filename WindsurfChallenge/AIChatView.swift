@@ -5,6 +5,7 @@ struct AIChatView: View {
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
     private let aiService: AIServiceProtocol = OllamaService()
+    private let messagesKey = "savedMessages"
     
     // 添加系统提示词常量
     private let systemPrompt = """
@@ -14,6 +15,11 @@ struct AIChatView: View {
     3. 如果不确定，请诚实地说明
     4. 用中文回复
     """
+    
+    init() {
+        // 从 UserDefaults 加载已保存的消息
+        _messages = State(initialValue: loadMessages())
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -65,7 +71,9 @@ struct AIChatView: View {
             }
             .padding()
         }
+        // .frame(width: 300)
         .background(Color.white)
+        .transition(.move(edge: .trailing))
     }
     
     private func sendMessage() {
@@ -79,29 +87,28 @@ struct AIChatView: View {
             timestamp: Date()
         )
         messages.append(userMessage)
+        saveMessages() // 保存消息
         
         // 清空输入框并开始加载
         let userInput = inputText
         inputText = ""
         isLoading = true
         
-        // 准备发送给 AI 的消息历史，添加系统提示词
-        var aiMessages = [AIMessage(role: .system, content: systemPrompt)]
-        
-        // 添加最近的对话历史
-        aiMessages.append(contentsOf: messages.suffix(10).map { message in
+        // 准备发送给 AI 的消息历史（最近10轮对话）
+        let recentMessages = messages.suffix(10).map { message in
             AIMessage(
                 role: message.isUser ? .user : .assistant,
                 content: message.content
             )
-        })
+        }
         
         // 发送请求
-        aiService.sendMessages(aiMessages) { text in
+        aiService.sendMessages(recentMessages) { text in
             DispatchQueue.main.async {
                 if let lastMessage = messages.last, !lastMessage.isUser {
                     // 如果最后一条是 AI 消息，则附加到该消息
                     messages[messages.count - 1].content += text
+                    saveMessages() // 保存 AI 响应
                 } else {
                     // 否则创建新的 AI 消息
                     let aiMessage = ChatMessage(
@@ -111,6 +118,7 @@ struct AIChatView: View {
                         timestamp: Date()
                     )
                     messages.append(aiMessage)
+                    saveMessages() // 保存 AI 响应
                 }
             }
         } handleComplete: {
@@ -125,12 +133,28 @@ struct AIChatView: View {
             }
         }
     }
+    
+    // 添加保存消息的方法
+    private func saveMessages() {
+        if let encoded = try? JSONEncoder().encode(messages) {
+            UserDefaults.standard.set(encoded, forKey: messagesKey)
+        }
+    }
+    
+    // 添加加载消息的方法
+    private func loadMessages() -> [ChatMessage] {
+        if let data = UserDefaults.standard.data(forKey: messagesKey),
+           let decoded = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            return decoded
+        }
+        return []
+    }
 }
 
 // 聊天消息模型
-struct ChatMessage: Identifiable {
+struct ChatMessage: Identifiable, Codable {
     let id: UUID
-    var content: String // 改为可变
+    var content: String
     let isUser: Bool
     let timestamp: Date
 }
