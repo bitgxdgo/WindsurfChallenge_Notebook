@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var selectedNote: WindsurfChallengeNote?
     @State private var isEditing = false
     @State private var isFileImporterPresented = false
+    @State private var isAIChatPresented = false
+    @State private var chatPanelWidth: CGFloat = 300 // 默认宽度
     
     var body: some View {
         NavigationSplitView(
@@ -33,17 +35,49 @@ struct ContentView: View {
                 }
             },
             detail: {
-                if let note = selectedNote {
-                    NoteDetailView(note: note)
-                } else {
-                    Text("选择一个笔记")
+                HStack(spacing: 0) {
+                    if let note = selectedNote {
+                        NoteDetailView(note: note)
+                    } else {
+                        Text("选择一个笔记")
+                    }
+                    
+                    if isAIChatPresented {
+                        Divider()
+                            .onHover { hovering in
+                                if hovering {
+                                    NSCursor.resizeLeftRight.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        let newWidth = max(250, min(600, chatPanelWidth - value.translation.width))
+                                        chatPanelWidth = newWidth
+                                    }
+                            )
+                        
+                        AIChatView()
+                            .frame(width: chatPanelWidth)
+                            .transition(.move(edge: .trailing))
+                    }
                 }
+                .animation(.spring(duration: 0.3), value: isAIChatPresented)
             }
         )
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(action: { isFileImporterPresented = true }) {
-                    Label("上传文件", systemImage: "square.and.arrow.up")
+                HStack {
+                    Button(action: { isFileImporterPresented = true }) {
+                        Label("上传文件", systemImage: "square.and.arrow.up")
+                    }
+                    
+                    Button(action: { isAIChatPresented.toggle() }) {
+                        Label("AI对话", systemImage: "message")
+                            .foregroundColor(isAIChatPresented ? .blue : .primary)
+                    }
                 }
             }
         }
@@ -473,7 +507,7 @@ struct SidebarView: View {
                 )
             case .renameFolder(let folder):
                 FolderNameDialog(
-                    title: "重命名文件夹",
+                    title: "重命名���件夹",
                     buttonTitle: "确定",
                     folderName: $newFolderName,
                     onSubmit: { name in
