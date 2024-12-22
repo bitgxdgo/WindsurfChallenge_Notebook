@@ -18,18 +18,12 @@ struct ContentView: View {
     @State private var selectedFolder: WindsurfChallengeFolder?
     @State private var selectedNote: WindsurfChallengeNote?
     @State private var isEditing = false
+    @State private var isFileImporterPresented = false
     
     var body: some View {
         NavigationSplitView(
             sidebar: {
                 SidebarView(selectedFolder: $selectedFolder)
-                    // .toolbar {
-                    //     ToolbarItem {
-                    //         Button(action: addFolder) {
-                    //             Label("新建文件夹", systemImage: "folder.badge.plus")
-                    //         }
-                    //     }
-                    // }
             },
             content: {
                 if let folder = selectedFolder {
@@ -46,6 +40,69 @@ struct ContentView: View {
                 }
             }
         )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: { isFileImporterPresented = true }) {
+                    Label("上传文件", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            handleSelectedFile(result)
+        }
+    }
+    
+    private func handleSelectedFile(_ result: Result<[URL], Error>) {
+        do {
+            let urls = try result.get()
+            guard let selectedUrl = urls.first else { return }
+            
+            // 确保文件可访问
+            guard selectedUrl.startAccessingSecurityScopedResource() else {
+                print("无法访问选中的文件")
+                return
+            }
+            
+            defer {
+                selectedUrl.stopAccessingSecurityScopedResource()
+            }
+            
+            let data = try Data(contentsOf: selectedUrl)
+            let decoder = JSONDecoder()
+            let importItems = try decoder.decode([NoteImportItem].self, from: data)
+            
+            // 确保有选中的文件夹
+            guard let currentFolder = selectedFolder else {
+                print("请先选择一个文件夹")
+                return
+            }
+            
+            // 批量创建笔记
+            importItems.forEach { item in
+                createNote(from: item, in: currentFolder)
+            }
+            
+        } catch {
+            print("处理文件失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func createNote(from item: NoteImportItem, in folder: WindsurfChallengeFolder) {
+        let newNote = WindsurfChallengeNote(context: viewContext)
+        newNote.title = item.title
+        newNote.content = item.answer
+        newNote.folder = folder
+        newNote.updatedAt = Date()
+        
+        do {
+            try viewContext.save()
+        } catch {
+            print("创建笔记失败: \(error.localizedDescription)")
+        }
     }
     
     private func addFolder() {
@@ -80,17 +137,23 @@ struct NoteListView: View {
     @ObservedObject var folder: WindsurfChallengeFolder
     @Binding var selectedNote: WindsurfChallengeNote?
     @Environment(\.managedObjectContext) private var viewContext
-    @FetchRequest var notes: FetchedResults<WindsurfChallengeNote>
+    
+    // 使用 FetchRequest 直接按 updatedAt 降序排序
+    @FetchRequest private var notes: FetchedResults<WindsurfChallengeNote>
+    
+    // 追踪前一个文件夹的 objectID
+    @State private var previousFolderID: NSManagedObjectID?
     
     init(folder: WindsurfChallengeFolder, selectedNote: Binding<WindsurfChallengeNote?>) {
         self.folder = folder
         self._selectedNote = selectedNote
         self._notes = FetchRequest(
             entity: WindsurfChallengeNote.entity(),
-            sortDescriptors: [NSSortDescriptor(keyPath: \WindsurfChallengeNote.updatedAt, ascending: false)],
+            sortDescriptors: [
+                NSSortDescriptor(keyPath: \WindsurfChallengeNote.updatedAt, ascending: false)
+            ],
             predicate: NSPredicate(format: "folder == %@", folder)
         )
-        print("NoteListView 初始化 - 文件夹: \(folder.name ?? "未命名")")
     }
     
     var body: some View {
@@ -98,12 +161,10 @@ struct NoteListView: View {
             ForEach(notes) { note in
                 NavigationLink(value: note) {
                     VStack(alignment: .leading, spacing: 8) {
-                        // 标题
                         Text(note.title ?? "未命名")
                             .font(.headline)
                             .lineLimit(1)
                         
-                        // 内容预览
                         if let content = note.content, !content.isEmpty {
                             Text(content)
                                 .font(.subheadline)
@@ -112,7 +173,6 @@ struct NoteListView: View {
                                 .truncationMode(.tail)
                         }
                         
-                        // 更新时间
                         if let updatedAt = note.updatedAt {
                             Text(formatDate(updatedAt))
                                 .font(.caption)
@@ -124,59 +184,57 @@ struct NoteListView: View {
             }
             .onDelete(perform: deleteNotes)
         }
-        .id(folder.objectID)
         .toolbar {
             ToolbarItem {
                 Button(action: addNote) {
-                    Label("Add Note", systemImage: "plus")
+                    Label("新建笔记", systemImage: "plus")
                 }
             }
         }
         .onAppear {
-            print("NoteListView onAppear - 文件夹: \(folder.name ?? "未命名")")
-            selectFirstNoteIfNeeded()
+            // 初始化 previousFolderID
+            previousFolderID = folder.objectID
+            selectFirstNoteIfNeeded(currentFolder: folder)
         }
         .onChange(of: folder) { newFolder in
-            print("文件夹切换 - 从: \(folder.name ?? "未命名") 到: \(newFolder.name ?? "未命名")")
-            selectFirstNoteIfNeeded()
+            // 检查文件夹是否真的发生了变化
+            if previousFolderID != newFolder.objectID {
+                previousFolderID = newFolder.objectID
+                selectFirstNoteIfNeeded(currentFolder: newFolder)
+            }
         }
     }
     
-    // 格式化日期的辅助函数
     private func formatDate(_ date: Date) -> String {
         let now = Date()
         let calendar = Calendar.current
         
         if calendar.isDateInToday(date) {
-            // 今天的显示具体时间
             let formatter = DateFormatter()
             formatter.dateFormat = "HH:mm"
             return "今天 " + formatter.string(from: date)
         } else if calendar.isDateInYesterday(date) {
             return "昨天"
         } else if calendar.compare(date, to: now, toGranularity: .year) == .orderedSame {
-            // 今年的显示月日
             let formatter = DateFormatter()
             formatter.dateFormat = "MM-dd"
             return formatter.string(from: date)
         } else {
-            // 往年的显示年月日
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd"
             return formatter.string(from: date)
         }
     }
     
-    private func selectFirstNoteIfNeeded() {
+    private func selectFirstNoteIfNeeded(currentFolder: WindsurfChallengeFolder) {
         DispatchQueue.main.async {
-            print("执行 selectFirstNoteIfNeeded - 文件夹: \(folder.name ?? "未命名")")
-            print("当前笔记数量: \(notes.count)")
             if !notes.isEmpty {
-                selectedNote = notes.first
-                print("选中第一条笔记: \(notes.first?.title ?? "未命名")")
+                // 仅在切换文件夹时自动选中第一笔记
+                if selectedNote?.folder != currentFolder {
+                    selectedNote = notes.first
+                }
             } else {
                 selectedNote = nil
-                print("笔记列表为空，清除选中笔记")
             }
         }
     }
@@ -191,9 +249,10 @@ struct NoteListView: View {
             
             do {
                 try viewContext.save()
+                selectedNote = newNote
             } catch {
                 let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+                print("创建笔记失败: \(nsError), \(nsError.userInfo)")
             }
         }
     }
@@ -204,9 +263,13 @@ struct NoteListView: View {
             
             do {
                 try viewContext.save()
+                // 如果删除的是当前选中的笔记，重新选择第一条笔记
+                if selectedNote == nil {
+                    selectedNote = notes.first
+                }
             } catch {
                 let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+                print("删除笔记失败: \(nsError), \(nsError.userInfo)")
             }
         }
     }
@@ -231,25 +294,31 @@ struct NoteDetailView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding()
                 .onChange(of: title) { newValue in
-                    print("标题更新 - 从: \(note.title ?? "") 到: \(newValue)")
-                    note.title = newValue
-                    note.updatedAt = Date()
-                    try? viewContext.save()
+                    if newValue != note.title {
+                        print("标题更新 - 从: \(note.title ?? "") 到: \(newValue)")
+                        note.title = newValue
+                        note.updatedAt = Date()
+                        saveContext()
+                    }
                 }
             
             TextEditor(text: $content)
                 .padding()
                 .onChange(of: content) { newValue in
-                    print("内容更新 - 笔记: \(note.title ?? "")")
-                    note.content = newValue
-                    note.updatedAt = Date()
-                    try? viewContext.save()
+                    if newValue != note.content {
+                        print("内容更新 - 笔记: \(note.title ?? "")")
+                        note.content = newValue
+                        note.updatedAt = Date()
+                        saveContext()
+                    }
                 }
         }
         .onChange(of: note) { newNote in
-            title = newNote.title ?? ""
-            content = newNote.content ?? ""
-            print("笔记切换 - 更新到新笔记: \(newNote.title ?? "未命名")")
+            if newNote != note {
+                title = newNote.title ?? ""
+                content = newNote.content ?? ""
+                print("笔记切换 - 更新到新笔记: \(newNote.title ?? "未命名")")
+            }
         }
         .onAppear {
             print("NoteDetailView 显示 - 笔记标题: \(note.title ?? "未命名")")
@@ -258,7 +327,22 @@ struct NoteDetailView: View {
             print("NoteDetailView 消失 - 笔记标题: \(note.title ?? "未命名")")
         }
     }
+    
+    private func saveContext() {
+        do {
+            try viewContext.save()
+        } catch {
+            let nsError = error as NSError
+            print("保存笔记失败: \(nsError), \(nsError.userInfo)")
+        }
+    }
 }
+
+// 定义通知名称
+extension Notification.Name {
+    static let noteContentChanged = Notification.Name("noteContentChanged")
+}
+
 
 // 侧边栏视图
 struct SidebarView: View {
@@ -289,11 +373,11 @@ struct SidebarView: View {
     
     var body: some View {
         List(selection: $selectedFolder) {
-            Section("快速访问") {
-                NavigationLink(value: nil as WindsurfChallengeFolder?) {
-                    Label("所有笔记", systemImage: "note.text")
-                }
-            }
+            // Section("快速访问") {
+            //     NavigationLink(value: nil as WindsurfChallengeFolder?) {
+            //         Label("所有笔记", systemImage: "note.text")
+            //     }
+            // }
             
             Section("文件夹") {
                 ForEach(rootFolders) { folder in
@@ -444,111 +528,6 @@ struct FolderItemView: View {
     }
 }
 
-// 笔记列表视图
-struct NoteListViewOld: View {
-    @Environment(\.managedObjectContext) private var viewContext
-    let folder: WindsurfChallengeFolder?
-    @Binding var selectedNote: WindsurfChallengeNote?
-    
-    var body: some View {
-        Group {
-            if let folder = folder {
-                NotesList(folder: folder, selectedNote: $selectedNote)
-            } else {
-                Text("请选择一个文件夹")
-                    .foregroundColor(.gray)
-            }
-        }
-    }
-}
-
-struct NotesList: View {
-    @Environment(\.managedObjectContext) private var viewContext
-    @FetchRequest private var notes: FetchedResults<WindsurfChallengeNote>
-    @Binding var selectedNote: WindsurfChallengeNote?
-    let folder: WindsurfChallengeFolder
-    
-    init(folder: WindsurfChallengeFolder, selectedNote: Binding<WindsurfChallengeNote?>) {
-        self.folder = folder
-        _notes = FetchRequest(
-            sortDescriptors: [NSSortDescriptor(keyPath: \WindsurfChallengeNote.updatedAt, ascending: false)],
-            predicate: NSPredicate(format: "folder == %@", folder)
-        )
-        _selectedNote = selectedNote
-    }
-    
-    var body: some View {
-        List(selection: $selectedNote) {
-            ForEach(notes) { note in
-                NavigationLink(value: note) {
-                    VStack(alignment: .leading) {
-                        Text(note.title ?? "未命名")
-                            .font(.headline)
-                        if let date = note.updatedAt {
-                            Text(date.formatted())
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .contextMenu {
-                    Button(role: .destructive) {
-                        deleteNote(note)
-                    } label: {
-                        Label("删除", systemImage: "trash")
-                    }
-                    
-                    Button {
-                        // 重命名功能待实现
-                    } label: {
-                        Label("重命名", systemImage: "pencil")
-                    }
-                }
-            }
-        }
-        .toolbar {
-            ToolbarItem {
-                Button(action: addNote) {
-                    Label("新建笔记", systemImage: "square.and.pencil")
-                }
-            }
-        }
-    }
-    
-    private func addNote() {
-        withAnimation {
-            let newNote = WindsurfChallengeNote(context: viewContext)
-            newNote.title = "新建笔记"
-            newNote.content = ""
-            newNote.folder = folder
-            newNote.updatedAt = Date()
-            
-            do {
-                try viewContext.save()
-            } catch {
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
-        }
-    }
-    
-    private func deleteNote(_ note: WindsurfChallengeNote) {
-        withAnimation {
-            if selectedNote == note {
-                selectedNote = nil
-            }
-            viewContext.delete(note)
-            
-            do {
-                try viewContext.save()
-            } catch {
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
-        }
-    }
-}
-
 // 笔记编辑视图
 struct NoteEditorView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -572,14 +551,18 @@ struct NoteEditorView: View {
                 content = note.content ?? ""
             }
             .onChange(of: title) { newValue in
-                note.title = newValue
-                note.updatedAt = Date()
-                save()
+                if newValue != note.title {
+                    note.title = newValue
+                    note.updatedAt = Date()
+                    save()
+                }
             }
             .onChange(of: content) { newValue in
-                note.content = newValue
-                note.updatedAt = Date()
-                save()
+                if newValue != note.content {
+                    note.content = newValue
+                    note.updatedAt = Date()
+                    save()
+                }
             }
         } else {
             Text("请选择一个笔记")
