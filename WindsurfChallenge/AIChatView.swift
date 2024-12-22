@@ -4,8 +4,21 @@ struct AIChatView: View {
     @State private var inputText = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
+    @State private var localPendingMessage: String?
     private let aiService: AIServiceProtocol = OllamaService()
     private let messagesKey = "savedMessages"
+    
+    // 使用静态属性来存储消息队列
+    private static var pendingMessage: String? {
+        didSet {
+            print("AIChatView - pendingMessage 已更新为: \(String(describing: pendingMessage))")
+            NotificationCenter.default.post(
+                name: .init("pendingMessageChanged"),
+                object: nil,
+                userInfo: ["message": pendingMessage as Any]
+            )
+        }
+    }
     
     // 添加系统提示词常量
     private let systemPrompt = """
@@ -17,8 +30,14 @@ struct AIChatView: View {
     """
     
     init() {
-        // 从 UserDefaults 加载已保存的消息
         _messages = State(initialValue: loadMessages())
+    }
+    
+    // 添加静态方法来处理消息
+    static func handleIncomingMessage(_ message: String) {
+        print("AIChatView - 静态方法收到消息: \(message)")
+        pendingMessage = message
+        print("AIChatView - pendingMessage 已设置为: \(String(describing: pendingMessage))")
     }
     
     var body: some View {
@@ -55,9 +74,9 @@ struct AIChatView: View {
             HStack(spacing: 8) {
                 TextField("输入消息...", text: $inputText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onSubmit(sendMessage)
+                    .onSubmit { sendMessage() }
                 
-                Button(action: sendMessage) {
+                Button(action: { sendMessage() }) {
                     if isLoading {
                         ProgressView()
                             .scaleEffect(0.7)
@@ -71,46 +90,87 @@ struct AIChatView: View {
             }
             .padding()
         }
-        // .frame(width: 300)
-        .background(Color.white)
-        .transition(.move(edge: .trailing))
+        .onAppear {
+            print("AIChatView - 视图出现")
+            // 检查初始状态
+            if let message = Self.pendingMessage {
+                print("AIChatView - 发现初始待处理消息: \(message)")
+                localPendingMessage = message
+                Self.pendingMessage = nil
+            }
+            
+            // 添加通知观察者
+            NotificationCenter.default.addObserver(
+                forName: .init("pendingMessageChanged"),
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let message = notification.userInfo?["message"] as? String {
+                    print("AIChatView - 收到新消息通知: \(message)")
+                    localPendingMessage = message
+                }
+            }
+        }
+        .onChange(of: localPendingMessage) { newMessage in
+            print("AIChatView - localPendingMessage 变化为: \(String(describing: newMessage))")
+            if let message = newMessage {
+                print("AIChatView - 准备发送消息")
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    sendMessage(message)
+                    localPendingMessage = nil
+                    print("AIChatView - 消息已发送")
+                }
+            }
+        }
     }
     
-    private func sendMessage() {
-        guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    private func sendMessage(_ text: String? = nil) {
+        let messageText = text ?? inputText
+        print("AIChatView - sendMessage 被调用，消息内容: \(messageText)")
+        
+        guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { 
+            print("AIChatView - 消息内容为空，退出")
+            return 
+        }
         
         // 添加用户消息
         let userMessage = ChatMessage(
             id: UUID(),
-            content: inputText,
+            content: messageText,
             isUser: true,
             timestamp: Date()
         )
+        print("AIChatView - 添加用户消息到消息列表")
         messages.append(userMessage)
-        saveMessages() // 保存消息
+        saveMessages()
         
         // 清空输入框并开始加载
-        let userInput = inputText
         inputText = ""
         isLoading = true
+        print("AIChatView - 开始加载状态")
         
-        // 准备发送给 AI 的消息历史（最近10轮对话）
-        let recentMessages = messages.suffix(10).map { message in
+        // 准备发送给 AI 的消息历史
+        var allMessages = [
+            AIMessage(role: .system, content: systemPrompt)
+        ]
+        
+        allMessages.append(contentsOf: messages.suffix(10).map { message in
             AIMessage(
                 role: message.isUser ? .user : .assistant,
                 content: message.content
             )
-        }
+        })
         
+        print("AIChatView - 准备发送请求给 AI 服务")
         // 发送请求
-        aiService.sendMessages(recentMessages) { text in
+        aiService.sendMessages(allMessages) { text in
+            print("AIChatView - 收到 AI 响应流: \(text)")
             DispatchQueue.main.async {
                 if let lastMessage = messages.last, !lastMessage.isUser {
-                    // 如果最后一条是 AI 消息，则附加到该消息
                     messages[messages.count - 1].content += text
-                    saveMessages() // 保存 AI 响应
+                    saveMessages()
                 } else {
-                    // 否则创建新的 AI 消息
                     let aiMessage = ChatMessage(
                         id: UUID(),
                         content: text,
@@ -118,18 +178,18 @@ struct AIChatView: View {
                         timestamp: Date()
                     )
                     messages.append(aiMessage)
-                    saveMessages() // 保存 AI 响应
+                    saveMessages()
                 }
             }
         } handleComplete: {
+            print("AIChatView - AI 响应完成")
             DispatchQueue.main.async {
                 isLoading = false
             }
         } handleError: { error in
+            print("AIChatView - 发生错误: \(error)")
             DispatchQueue.main.async {
                 isLoading = false
-                // 可以添加错误处理UI
-                print("Error: \(error)")
             }
         }
     }

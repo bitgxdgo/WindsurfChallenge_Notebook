@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var isAIChatPresented = false
     @State private var chatPanelWidth: CGFloat = 300 // 默认宽度
     
+    // 保持一个持久的 AIChatView 引用
+    private let aiChatView = AIChatView()
+    
     var body: some View {
         NavigationSplitView(
             sidebar: {
@@ -37,7 +40,7 @@ struct ContentView: View {
             detail: {
                 HStack(spacing: 0) {
                     if let note = selectedNote {
-                        NoteDetailView(note: note)
+                        NoteDetailView(note: note, isAIChatPresented: $isAIChatPresented)
                     } else {
                         Text("选择一个笔记")
                     }
@@ -59,7 +62,7 @@ struct ContentView: View {
                                     }
                             )
                         
-                        AIChatView()
+                        aiChatView  // 使用持久的实例
                             .frame(width: chatPanelWidth)
                             .transition(.move(edge: .trailing))
                     }
@@ -314,38 +317,79 @@ struct NoteDetailView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @State private var title: String
     @State private var content: String
+    @Binding var isAIChatPresented: Bool
     
-    init(note: WindsurfChallengeNote) {
+    init(note: WindsurfChallengeNote, isAIChatPresented: Binding<Bool>) {
         self.note = note
         _title = State(initialValue: note.title ?? "")
         _content = State(initialValue: note.content ?? "")
+        _isAIChatPresented = isAIChatPresented
         print("NoteDetailView 初始化 - 笔记标题: \(note.title ?? "未命名")")
     }
     
+    private func getSelectedText() -> String {
+        if let textView = NSApplication.shared.keyWindow?.firstResponder as? NSTextView {
+            return textView.selectedText ?? ""
+        }
+        return ""
+    }
+    
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // 日期显示移到最上方
-                if let date = note.updatedAt {
-                    Text(formatDate(date))
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
-                        .padding(.bottom, 8)
+        ZStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // 日期显示移到最上方
+                    if let date = note.updatedAt {
+                        Text(formatDate(date))
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                            .padding(.bottom, 8)
+                    }
+                    
+                    // 标题
+                    TextField("标题", text: $title)
+                        .font(.system(size: 20, weight: .bold))
+                        .textFieldStyle(.plain)
+                        .padding(.bottom, 16)
+                    
+                    // 内容
+                    TextEditor(text: $content)
+                        .font(.system(size: 14))
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                        .scrollContentBackground(.hidden)
                 }
-                
-                // 标题
-                TextField("标题", text: $title)
-                    .font(.system(size: 20, weight: .bold))
-                    .textFieldStyle(.plain)
-                    .padding(.bottom, 16)
-                
-                // 内容
-                TextEditor(text: $content)
-                    .font(.system(size: 14))
-                    .frame(maxWidth: .infinity, minHeight: 300)
-                    .scrollContentBackground(.hidden)
+                .padding(20)
             }
-            .padding(20)
+            
+            // 反思按钮
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    ReflectionButton(isGenerating: false) {
+                        print("反思按钮被点击")
+                        // 1. 显示 AI 会话栏
+                        isAIChatPresented = true
+                        
+                        // 2. 获取选中文本并发送消息
+                        let selectedText = getSelectedText()
+                        let message = selectedText.isEmpty 
+                            ? "我想你了！" 
+                            : "你是我的日记助手，帮我对这段笔记内容进行反思:\(selectedText)"
+                        
+                        print("准备发送消息: \(message)")
+                        
+                        // 3. 直接调用 AIChatView 的静态方法
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            // 添加小延迟确保 AI 会话栏已经显示
+                            AIChatView.handleIncomingMessage(message)
+                        }
+                        print("已调用消息处理方法")
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
+                }
+            }
         }
         .onChange(of: title) { newValue in
             if newValue != note.title {
@@ -393,7 +437,16 @@ struct NoteDetailView: View {
     }
 }
 
-// 反思按钮视图
+// 修正 NSTextView 扩展
+extension NSTextView {
+    var selectedText: String? {
+        let range = selectedRange()
+        guard range.length > 0 else { return nil }
+        return attributedString().attributedSubstring(from: range).string
+    }
+}
+
+// 取消注释并启用反思按钮视图
 struct ReflectionButton: View {
     let isGenerating: Bool
     let action: () -> Void
@@ -411,18 +464,18 @@ struct ReflectionButton: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color.green)
+            .background(Color.blue)
             .cornerRadius(6)
         }
         .disabled(isGenerating)
     }
 }
 
-// 定义通知名称
+// 添加新的通知名称
 extension Notification.Name {
     static let noteContentChanged = Notification.Name("noteContentChanged")
+    static let sendReflectionMessage = Notification.Name("sendReflectionMessage")
 }
-
 
 // 侧边栏视图
 struct SidebarView: View {
@@ -507,7 +560,7 @@ struct SidebarView: View {
                 )
             case .renameFolder(let folder):
                 FolderNameDialog(
-                    title: "重命名���件夹",
+                    title: "重命名文件夹",
                     buttonTitle: "确定",
                     folderName: $newFolderName,
                     onSubmit: { name in
