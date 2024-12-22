@@ -47,27 +47,41 @@ struct AIChatView: View {
                 Text("AI 对话")
                     .font(.headline)
                 Spacer()
+                Button(action: clearMessages) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.gray)
+                }
             }
             .padding()
             .background(Color.gray.opacity(0.1))
             
             // 消息列表
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(messages) { message in
-                        ChatMessageView(message: message)
-                    }
-                    if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .scaleEffect(0.7)
-                            Spacer()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(messages) { message in
+                            ChatMessageView(message: message)
+                                .id(message.id)
                         }
-                        .padding(.vertical)
+                        if isLoading {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Spacer()
+                            }
+                            .padding(.vertical)
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: messages) { _ in
+                    if let lastMessage = messages.last {
+                        withAnimation {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
                     }
                 }
-                .padding()
             }
             
             // 底部输入框
@@ -209,14 +223,28 @@ struct AIChatView: View {
         }
         return []
     }
+    
+    // 添加清空消息的方法
+    private func clearMessages() {
+        messages.removeAll()
+        saveMessages()
+    }
 }
 
 // 聊天消息模型
-struct ChatMessage: Identifiable, Codable {
+struct ChatMessage: Identifiable, Codable, Equatable {
     let id: UUID
     var content: String
     let isUser: Bool
     let timestamp: Date
+    
+    // 实现 Equatable 协议
+    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        return lhs.id == rhs.id &&
+               lhs.content == rhs.content &&
+               lhs.isUser == rhs.isUser &&
+               lhs.timestamp == rhs.timestamp
+    }
 }
 
 // 消息气泡视图
