@@ -217,10 +217,13 @@ struct AIChatView: View {
     
     // 添加加载消息的方法
     private func loadMessages() -> [ChatMessage] {
+        print("正在从 UserDefaults 加载消息...")
         if let data = UserDefaults.standard.data(forKey: messagesKey),
            let decoded = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            print("成功加载消息，数量: \(decoded.count)")
             return decoded
         }
+        print("没有找到存储的消息")
         return []
     }
     
@@ -228,6 +231,20 @@ struct AIChatView: View {
     private func clearMessages() {
         messages.removeAll()
         saveMessages()
+        UserDefaults.standard.synchronize()
+        
+        // 清除待处理的消息
+        Self.pendingMessage = nil
+        localPendingMessage = nil
+        
+        // 用于调试
+        print("消息已清除，当前 UserDefaults 中的数据：")
+        if let data = UserDefaults.standard.data(forKey: messagesKey),
+           let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            print("存储的消息数量: \(messages.count)")
+        } else {
+            print("UserDefaults 中没有消息数据")
+        }
     }
 }
 
