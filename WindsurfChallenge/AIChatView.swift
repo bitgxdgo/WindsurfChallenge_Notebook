@@ -47,10 +47,11 @@ struct AIChatView: View {
                 Text("AI 对话")
                     .font(.headline)
                 Spacer()
-                Button(action: clearMessages) {
-                    Image(systemName: "trash")
-                        .foregroundColor(.gray)
-                }
+                Image(systemName: "trash")
+                    .foregroundColor(.gray)
+                    .onTapGesture {
+                        clearMessages()
+                    }
             }
             .padding()
             .background(Color.gray.opacity(0.1))
@@ -279,6 +280,7 @@ struct ChatMessageView: View {
                 .background(message.isUser ? Color.blue : Color.gray.opacity(0.2))
                 .foregroundColor(message.isUser ? .white : .primary)
                 .cornerRadius(12)
+                .textSelection(.enabled)
             
             if !message.isUser {
                 Spacer()

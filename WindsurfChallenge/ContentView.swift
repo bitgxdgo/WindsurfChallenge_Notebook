@@ -452,22 +452,18 @@ struct ReflectionButton: View {
     let action: () -> Void
     
     var body: some View {
-        Button(action: action) {
-            HStack {
-                if isGenerating {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(0.8)
+        if isGenerating {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle())
+                .scaleEffect(0.8)
+        } else {
+            Image(systemName: "lightbulb.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.blue)
+                .onTapGesture {
+                    action()
                 }
-                Text("反思")
-                    .foregroundColor(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.blue)
-            .cornerRadius(6)
         }
-        .disabled(isGenerating)
     }
 }
 
