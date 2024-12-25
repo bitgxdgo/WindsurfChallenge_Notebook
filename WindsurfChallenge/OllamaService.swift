@@ -5,7 +5,7 @@ class OllamaService: AIServiceProtocol {
     private let model: String
     private var currentTask: URLSessionDataTask?
     
-    init(model: String = "llama3.2") {
+    init(model: String = "qwen2:0.5b") {
         self.model = model
     }
     

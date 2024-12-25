@@ -1,10 +1,13 @@
 import SwiftUI
+import AppKit
 
 struct AIChatView: View {
     @State private var inputText = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
     @State private var localPendingMessage: String?
+    @State private var textEditorHeight: CGFloat = 20  // 只保留这一个高度状态
+    @FocusState private var isInputFocused: Bool
     private let aiService: AIServiceProtocol = OllamaService()
     private let messagesKey = "savedMessages"
     
@@ -86,23 +89,62 @@ struct AIChatView: View {
             }
             
             // 底部输入框
-            HStack(spacing: 8) {
-                TextField("输入消息...", text: $inputText)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onSubmit { sendMessage() }
-                
-                Button(action: { sendMessage() }) {
-                    if isLoading {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .foregroundColor(.blue)
-                            .font(.title2)
+            HStack(alignment: .bottom, spacing: 8) {
+                ZStack(alignment: .topLeading) {
+                    if inputText.isEmpty {
+                        Text("输入消息...")
+                            .foregroundColor(Color(nsColor: .placeholderTextColor))
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
+                            .font(.system(size: 14))
+                    }
+                    
+                    CustomTextEditor(text: $inputText) {
+                        if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isLoading {
+                            sendMessage()
+                        }
+                    }
+                    .font(.system(size: 14))
+                    .frame(height: max(textEditorHeight, 20))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .onChange(of: inputText) { newValue in
+                        print("\n文本已改变: '\(newValue)'")
+                        updateTextEditorHeight()
                     }
                 }
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .cornerRadius(10)
+                .frame(height: max(textEditorHeight, 40))
+
+                Image(systemName: "paperplane.fill")
+                    .imageScale(.medium)
+                    .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading ? .gray.opacity(0.5) : .white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(Color.blue.opacity(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading ? 0.3 : 1))
+                    )
+                    .overlay(
+                        Group {
+                            if isLoading {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            }
+                        }
+                    )
+                    .onTapGesture {
+                        if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isLoading {
+                            sendMessage()
+                        }
+                    }
             }
+            .frame(height: max(textEditorHeight + 16, 56))
             .padding()
         }
         .onAppear {
@@ -247,6 +289,29 @@ struct AIChatView: View {
             print("UserDefaults 中没有消息数据")
         }
     }
+    
+    // 添加这个方法来更新输入框高度
+    private func updateTextEditorHeight() {
+        print("开始计算新高度，当前文本内容：'\(inputText)'")
+        print("当前 textEditorHeight: \(textEditorHeight)")
+        
+        let width = NSScreen.main?.frame.width ?? 800 - 80
+        print("计算使用的宽度: \(width)")
+        
+        let rawHeight = inputText.height(withConstrainedWidth: width, font: .systemFont(ofSize: 17))
+        print("文本原始高度: \(rawHeight)")
+        
+        let newHeight = min(rawHeight + 20, 100)
+        print("计算后的新高度: \(newHeight)")
+        
+        if newHeight != textEditorHeight {
+            print("高度将要改变：\(textEditorHeight) -> \(newHeight)")
+            textEditorHeight = newHeight
+            print("高度已更新为: \(textEditorHeight)")
+        } else {
+            print("高度无需改变，保持在: \(textEditorHeight)")
+        }
+    }
 }
 
 // 聊天消息模型
@@ -332,6 +397,66 @@ extension AIServiceProtocol {
             onError: handleError
         )
         sendMessages(messages, responseHandler: handler)
+    }
+}
+
+// 添加 View 扩展来支持条件修饰符
+extension View {
+    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
+// 在文件末尾添加这个 PreferenceKey
+struct ViewHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+// 修改 String 扩展
+extension String {
+    func height(withConstrainedWidth width: CGFloat, font: NSFont) -> CGFloat {
+        let text = self.isEmpty ? " " : self  // 确保空字符串也有高度
+        let attributedString = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .paragraphStyle: {
+                    let style = NSMutableParagraphStyle()
+                    style.lineBreakMode = .byWordWrapping
+                    return style
+                }()
+            ]
+        )
+        
+        let constraintRect = CGSize(width: width, height: .greatestFiniteMagnitude)
+        let boundingRect = attributedString.boundingRect(
+            with: constraintRect,
+            options: [.usesFontLeading, .usesLineFragmentOrigin]
+        )
+        
+        return ceil(boundingRect.height)
+    }
+}
+
+// 在文件末尾添加这个扩展
+extension NSView {
+    func findTextView() -> NSTextView? {
+        if let textView = self as? NSTextView {
+            return textView
+        }
+        for subview in self.subviews {
+            if let textView = subview.findTextView() {
+                return textView
+            }
+        }
+        return nil
     }
 }
 

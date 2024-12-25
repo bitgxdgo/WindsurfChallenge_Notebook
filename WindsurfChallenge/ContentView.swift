@@ -91,6 +91,12 @@ struct ContentView: View {
         ) { result in
             handleSelectedFile(result)
         }
+        .onAppear {
+            // 如果没有选中的文件夹，自动选中第一个
+            if selectedFolder == nil && !folders.isEmpty {
+                selectedFolder = folders.first
+            }
+        }
     }
     
     private func handleSelectedFile(_ result: Result<[URL], Error>) {
