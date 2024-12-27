@@ -23,5 +23,13 @@
         <attribute name="title" optional="YES" attributeType="String"/>
         <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="folder" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Folder" inverseName="notes" inverseEntity="Folder"/>
+        <relationship name="images" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="WindsurfChallengeNoteImage" inverseName="note" inverseEntity="WindsurfChallengeNoteImage"/>
+    </entity>
+    <entity name="WindsurfChallengeNoteImage" representedClassName="WindsurfChallenge.WindsurfChallengeNoteImage" syncable="YES">
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="imageData" optional="YES" attributeType="Binary"/>
+        <attribute name="position" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="note" maxCount="1" deletionRule="Cascade" destinationEntity="Note" inverseName="images" inverseEntity="Note"/>
     </entity>
 </model>

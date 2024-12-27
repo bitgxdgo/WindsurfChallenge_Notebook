@@ -9,6 +9,7 @@ public class WindsurfChallengeNote: NSManagedObject {
     @NSManaged public var createdAt: Date?
     @NSManaged public var updatedAt: Date?
     @NSManaged public var folder: WindsurfChallengeFolder?
+    @NSManaged public var images: NSSet?
 }
 
 extension WindsurfChallengeNote {

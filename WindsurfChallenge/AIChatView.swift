@@ -33,7 +33,9 @@ struct AIChatView: View {
     """
     
     init() {
+        print("=== AIChatView 初始化开始 ===")
         _messages = State(initialValue: loadMessages())
+        print("=== AIChatView 初始化完成，消息数量：\(_messages.wrappedValue.count) ===")
     }
     
     // 添加静态方法来处理消息
@@ -272,6 +274,8 @@ struct AIChatView: View {
     
     // 添加清空消息的方法
     private func clearMessages() {
+        print("=== 开始清除消息 ===")
+        print("清除前消息数量：\(messages.count)")
         messages.removeAll()
         saveMessages()
         UserDefaults.standard.synchronize()
@@ -280,14 +284,14 @@ struct AIChatView: View {
         Self.pendingMessage = nil
         localPendingMessage = nil
         
-        // 用于调试
-        print("消息已清除，当前 UserDefaults 中的数据：")
+        // 验证清除结果
         if let data = UserDefaults.standard.data(forKey: messagesKey),
            let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
-            print("存储的消息数量: \(messages.count)")
+            print("警告：清除后 UserDefaults 中仍有 \(messages.count) 条消息")
         } else {
-            print("UserDefaults 中没有消息数据")
+            print("确认：UserDefaults 中的消息已完全清除")
         }
+        print("=== 清除消息完成 ===")
     }
     
     // 添加这个方法来更新输入框高度

@@ -92,7 +92,7 @@ struct ContentView: View {
             handleSelectedFile(result)
         }
         .onAppear {
-            // 如果没有选中的文件夹，自动选中第一个
+            // 如果没有选中的文件夹,则自动选中第一个
             if selectedFolder == nil && !folders.isEmpty {
                 selectedFolder = folders.first
             }
